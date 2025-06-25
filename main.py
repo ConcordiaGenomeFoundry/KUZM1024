@@ -1,36 +1,46 @@
 import pandas as pd
 import glob, os, subprocess
-import report, csv
+import report, csv, time, gzip
 
 from Bio import SeqIO
 from collections import defaultdict
 
 
 data_joe_path = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_Chr4p_TSG'
-targets_joe = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe.fasta'
+# targets_joe = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe.fasta'
+targets_joe_unique = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe_unique.fasta'
 
 data_brittany_path = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_MitoCarrier'
 targets_brittany = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_MitoCarrier/targets_brittany.fasta'
+# targets_brittany = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_MitoCarrier/targets_brittany_modified.fasta'
+
+targets_DRs = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_MitoCarrier/targets_DRs.fasta'
 
 
-def verify_library(template_file):
+def verify_library(template_file_path, path_sequencing_data):
     """
     Verify if the library have sequences duplicates
-    :param template_file:
-    :return: list of gRNAS with duplicate sequences
+    :param template_file_path: Path to the FASTA file containing gRNA sequences.
+    :param path_sequencing_data: Path to the sequencing data directory.
+    :return: list of gRNAS with duplicate sequences and create a new fasta removing the duplicates.
     """
+    print("\n--- Verifying Library for Duplicate Sequences ---")
+    # --- Initialize time tracking ---
+    start_time = time.time()
+
+    # --- Initialize variables ---
     sequences = defaultdict(list)  # Key: sequence, Value: list of IDs
     current_id = None
     current_sequence_lines = []
     total_sequences_count = 0
 
     # --- Parse the FASTA file ---
-    with open(template_file, 'r') as f:
+    with open(template_file_path, 'r') as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-
+            # --- Check if the line is a header (starts with '>') ---
             if line.startswith('>'):
                 if current_id and current_sequence_lines:
                     sequence = "".join(current_sequence_lines)
@@ -42,10 +52,10 @@ def verify_library(template_file):
             else:
                 current_sequence_lines.append(line)
 
-        # Process the last sequence in the file
+        # --- Process the last sequence in the file ---
         if current_id and current_sequence_lines:
             sequence = "".join(current_sequence_lines)
-            sequences[sequence].append(current_id)
+            sequences[sequence].append(current_id) # Add the last sequence to the dictionary
             total_sequences_count += 1
 
     # --- Prepare data for CSV and gather statistics ---
@@ -65,8 +75,8 @@ def verify_library(template_file):
             unique_sequences_count += 1
 
     # --- Write duplicate sequences to CSV ---
-    with open('library_duplicates.csv', 'w', newline='') as out_f:
-        # Define the column headers including the new 'id_count'
+    with open(os.path.join(path_sequencing_data, 'library_duplicates.csv'), 'w', newline='') as out_f:
+        # --- Define the column headers including the new 'id_count' ---
         fieldnames = ['ids', 'id_count', 'sequence']
         writer = csv.DictWriter(out_f, fieldnames=fieldnames)
 
@@ -76,6 +86,13 @@ def verify_library(template_file):
         else:
             # If no duplicates, the file will just contain the header
             pass
+
+    # --- Create a fasta file with unique sequences ---
+    unique_fasta_file = os.path.join(path_sequencing_data, 'unique_sequences.fasta')
+    with open(unique_fasta_file, 'w') as fasta_out:
+        for seq, ids in sequences.items():
+            if len(ids) == 1:
+                fasta_out.write(f">{ids[0]}\n{seq}\n")
 
     # --- Print Summary Statistics ---
     print("\n--- Sequence Analysis Summary ---")
@@ -87,6 +104,9 @@ def verify_library(template_file):
         print(f"Duplicate sequences (if any) written to: library_duplicates.csv")
     else:
         print("No duplicate sequences found with different IDs. The output CSV contains only headers.")
+
+    elapsed_time = time.time() - start_time
+    print(f"Finished: Library verification completed in {elapsed_time:.2f} seconds.\n")
 
 
 def verify_qc(path_sequencing_data, fastqc_results_folder, multiqc_folder):
@@ -178,15 +198,15 @@ def remove_adapters(path_sequencing_data):
             subprocess.run(['cutadapt', '-a', 'AATGATACGGCGACCACCGAGATCTACAC', '-A', 'CAAGCAGAAGACGGCATACGAGAT', '-o', output_file_r1, '-p', output_file_r2, r1_file, r2_file, '--cores=4'], check=True)
 
 
-def merge_r1_r2(path_sequencing_data):
+def merge_r1_r2(path_sequencing_data, output_folder, merge_tool):
     """
     Merge R1 and R2 reads into a single file.
     """
-    r1_files = glob.glob(os.path.join(path_sequencing_data, '*_R1_*.fastq.gz'))
-    r2_files = glob.glob(os.path.join(path_sequencing_data, '*_R2_*.fastq.gz'))
+    r1_files = glob.glob(os.path.join(path_sequencing_data, 'raw_data', '*_R1_*.fastq.gz'))
+    r2_files = glob.glob(os.path.join(path_sequencing_data, 'raw_data', '*_R2_*.fastq.gz'))
 
     # Create a directory for merged files
-    merged_dir = os.path.join(path_sequencing_data, 'merged_reads')
+    merged_dir = os.path.join(path_sequencing_data, output_folder)
     if not os.path.exists(merged_dir):
         os.makedirs(merged_dir)
 
@@ -199,10 +219,36 @@ def merge_r1_r2(path_sequencing_data):
             if r2_file in r2_files:
                 base_name = os.path.splitext(os.path.splitext(os.path.basename(r1_file))[0])[0].replace("_R1", "")
                 output_prefix = os.path.join(merged_dir, base_name)
-                print(f"Merging {r1_file} and {r2_file}")
-                # parameters for PEAR -q: quality threshold, -t: minimum length of the merged reads, -f: forward read file, -r: reverse read file, -o: output directory
-                # the default minimun overlap size is set to 10 bp
-                subprocess.run(['pear', '-q', '25', '-t', '20', '-f', r1_file, '-r', r2_file, '-o', output_prefix], check=True)
+                if merge_tool == 'pear':
+                    print(f"Merging {r1_file} and {r2_file}")
+                    # --- Paramters for PEAR ---
+                    # -q: quality score threshold for trimming the low quality part of a read
+                    # -n: minimum length of the merged reads
+                    # -t: minimum length of the reads after trimming
+                    # -v: minimum overlap size (default is 10 bp)
+                    # -f: forward read file
+                    # -r: reverse read file
+                    # -o: output prefix for the merged reads
+
+                    # -- merged_v1 parameters
+                    # subprocess.run(['pear', '-q', '25', '-t', '20', '-f', r1_file, '-r', r2_file, '-o', output_prefix], check=True)
+
+                    # -- merged v2 parameters
+                    # subprocess.run(['pear', '-q', '25', '-n', '140', '-t', '74', '-v', '5', '-f', r1_file, '-r', r2_file, '-o', output_prefix], check=True)
+
+                    # -- merged v3 parameters
+                    # subprocess.run(['pear', '-q', '20', '-v', '5', '-t', '20', '-f', r1_file, '-r', r2_file, '-o', output_prefix], check=True)
+
+                    # -- merged v4 parameters
+                    # subprocess.run(['pear', '-q', '20', '-v', '5', '-t', '96', '-f', r1_file, '-r', r2_file, '-o', output_prefix], check=True)
+
+                    # -- merged v5 parameters
+                    subprocess.run(['pear', '-q', '15', '-v', '10', '-m', '192', '-n', '190', '-p', '0.001', '-f', r1_file,
+                                    '-r', r2_file, '-o', output_prefix], check=True)
+
+                else:
+                    # -- merge files with pandaseq
+                    subprocess.run(['pandaseq', '-f', r1_file, '-r', r2_file, '-o', '5', '-O', '10', '-L', '192', '-l', '192', '-w', output_prefix+'.fasta'], check=True)
 
 
 def clean_fastq_file(input_fastq, output_fastq):
@@ -291,58 +337,417 @@ def convert_fastq_to_fasta(path_sequencing_data, merged_reads_folder):
             print(f"Skipped {invalid_count} invalid sequences from {fastq_file}.")
 
 
+def filter_reads(path_fasta_files):
+    """
+    Filter reads with a lenght paramenter
+    :param path_sequencing_data:
+    :param merged_reads_folder:
+    :return: fasta file with filtered reads
+    """
+    print("\n--- Filtering Reads by Length ---")
+    count_filtered = 0
+    total_sequences = 0
+    fasta_files = glob.glob(os.path.join(path_fasta_files, '*assembled.fasta'))
+    if not fasta_files:
+        raise FileNotFoundError("No FASTA files found in the specified directory.")
+
+    # Iterate through all FASTA files in the directory
+    for fasta_file in fasta_files:
+        print(f"Processing {fasta_file}")
+        # Remove assembled from the file name and replace by filtered
+        filtered_fasta_filename = os.path.basename(fasta_file).replace('assembled', 'filtered')
+
+        # Create the filtered fasta file path
+        filtered_fasta_file = os.path.join(path_fasta_files, filtered_fasta_filename)
+
+        print(f"Filtering sequences in {filtered_fasta_filename} and saving to {filtered_fasta_file}")
+
+        subprocess.run(['seqkit', 'seq', '-m', '192', '-M', '192', fasta_file, '-o', filtered_fasta_file], check=True)
+        # subprocess.run(['seqkit', 'stats', filtered_fasta_file], check=True)
+
+        print(f"Filtering complete.")
+
+
 def count_reads(path_file_data):
     """
     Count the number of reads and calculate the length average in a FASTA file.
     """
-    total_length = 0
-    num_sequences = 0
-    average_length = 0
-    fasta_file = glob.glob(os.path.join(path_file_data, '*.fasta'))[0]
+    fasta_files = glob.glob(os.path.join(path_file_data, '*.fasta'))
 
-    with open(fasta_file, 'r') as infile:
-        for record in SeqIO.parse(infile, 'fasta'):
-            total_length += len(record.seq)
-            num_sequences += 1
-    if num_sequences > 0:
-        average_length = total_length / num_sequences
-        # print(f'Average length of sequences in fasta: {average_length:.2f}')
-    # print(f'Number of sequences in fasta: {num_sequences}')
-    return num_sequences, average_length
+    for fasta_file in fasta_files:
+        print(f"Counting reads in {fasta_file}")
+        with open(fasta_file, 'r') as infile:
+            result = subprocess.run(['seqkit', 'stats', '-T', fasta_file],
+                           capture_output=True, text=True, check=True)
+            # Parse the output
+            print(result.stdout)  # Print the stats output for debugging
+            lines = result.stdout.strip().split('\n')
+            if len(lines) > 1:
+                stats = lines[1].split('\t')  # Second line contains the stats
+                num_seqs = int(stats[3])  # Number of sequences
+                avg_len = float(stats[6])  # Average length
+                return num_seqs, avg_len
+            else:
+                raise ValueError("Unexpected seqkit output format.")
 
 
-def run_alignment(path_sequencing_data, template_file, merged_reads_folder):
+def get_drs_order(sequence, drs, regions):
     """
-    Run alignment using MMseqs.
+    Returns the order in which the DRs appear in the given sequence.
+
+    Args:
+        sequence (str): The DNA sequence to analyze.
+        drs (list): List of DR names (e.g., ['DR4', 'DR3', 'DR1', 'DRWT']).
+        regions (list): List of corresponding regions for the DRs.
+
+    Returns:
+        list: The order of DRs as they appear in the sequence.
     """
-    fasta_files = glob.glob(os.path.join(path_sequencing_data, merged_reads_folder, 'fasta', '*.fasta'))
+    dr_order = []
+    for dr, region in zip(drs, regions):
+        if region in sequence:
+            dr_order.append(dr)
+    return dr_order
+
+
+def count_drs_order(merged_reads_folder):
+    """
+    Reads a FASTA file from the merged_reads_folder, calculates the order of DRs for each sequence,
+    and prints the count of each unique order.
+
+    Args:
+        merged_reads_folder (str): Path to the folder containing the FASTA file.
+    """
+    # Define DRs and their corresponding regions
+    drs = ['DRWT', 'DR4', 'DR3', 'DR1']
+    regions = [
+        "TAATTTCTACTCTTGTAGAT", # DRWT
+        "TAATTTCTACTATTGTAGAT", # DR4
+        "AAATTTCTACTCTAGTAGAT", # DR3
+        "TAATTTCTACTGTCGTAGAT", # DR1
+    ]
+
+    # Find the FASTA file in the folder
+    fasta_files = [f for f in os.listdir(merged_reads_folder) if f.endswith('.fasta')]
+    if not fasta_files:
+        raise FileNotFoundError("No FASTA files found in the specified directory.")
+    fasta_file = os.path.join(merged_reads_folder, fasta_files[0])
+
+    # Initialize a dictionary to count DR orders
+    dr_order_counts = defaultdict(int)
+
+    # Parse the FASTA file and calculate DR orders
+    for record in SeqIO.parse(fasta_file, "fasta"):
+        sequence = str(record.seq)
+        dr_order = get_drs_order(sequence, drs, regions)
+        dr_order_counts[tuple(dr_order)] += 1
+
+    # Print the results
+    print("DR Order Counts:")
+    for order, count in dr_order_counts.items():
+        print(f"{' -> '.join(order)}: {count} times")
+
+    ''' Return a fasta file with sequence that contains all DRs '''
+    output_fasta_file = os.path.join(merged_reads_folder, 'drs_order.fasta')
+    with open(output_fasta_file, 'w') as fasta_out:
+        for record in SeqIO.parse(fasta_file, "fasta"):
+            sequence = str(record.seq)
+            dr_order = get_drs_order(sequence, drs, regions)
+            if len(dr_order) == len(drs):
+                ''' Write the sequence to the output FASTA file if it contains all DRs '''
+                fasta_out.write(f">{record.id}\n{sequence}\n")
+    return dr_order_counts
+
+
+def count_drs(merged_reads_folder, output_fasta_file):
+    print(merged_reads_folder, output_fasta_file)
+    drs = ['DRWT', 'DR4', 'DR3', 'DR1']
+
+    regions = [
+        "TAATTTCTACTATTGTAGAT",
+        "AAATTTCTACTCTAGTAGAT",
+        "TAATTTCTACTGTCGTAGAT",
+        "TAATTTCTACTCTTGTAGAT",
+    ]
+
+    read_counts = {region: 0 for region in regions}
+    total_reads_with_any_region = 0
+    total_reads_with_all_regions = 0
+    processed_reads = 0
+    fastq_files = []
+    fasta_files = []
+    fastqgz_files = []
+
+    fastq_files = glob.glob(os.path.join(merged_reads_folder, '*.assembled.fastq'))
+    if not fastq_files:
+        fasta_files = glob.glob(os.path.join(merged_reads_folder, '*.fasta'))
+        if not fasta_files:
+            fastqgz_files = glob.glob(os.path.join(merged_reads_folder, '*.fastq.gz'))
+            if not fastqgz_files:
+                raise FileNotFoundError("No files found in the specified directory.")
+
+    if output_fasta_file is not None:
+        fasta_output = open(output_fasta_file, 'w')
+
+    if fastq_files:
+        for fastq_file in fastq_files:
+            print(f"Processing {fastq_file}")
+            with open(fastq_file, 'r') as f:
+                read_id = ""  # Initialize read_id for each file
+                for i, line in enumerate(f):
+                    if i % 4 == 0:  # This is the sequence ID line in FASTQ
+                        # Remove the leading '@' and store the full ID
+                        read_id = line.strip().lstrip('@')
+                    elif i % 4 == 1:  # Read sequence line in FASTQ
+                        processed_reads += 1
+                        read_sequence = line.strip()
+                        found_in_this_read = False
+                        all_regions_found = True
+                        for region in regions:
+                            if region in read_sequence:
+                                read_counts[region] += 1
+                                found_in_this_read = True
+                            else:
+                                all_regions_found = False
+                        if found_in_this_read:
+                            total_reads_with_any_region += 1
+                        if all_regions_found:
+                            total_reads_with_all_regions += 1
+                            if output_fasta_file is not None:
+                                # Save the sequence to a FASTA file with the original read ID
+                                fasta_output.write(f">{read_id}\n{read_sequence}\n")
+    if fasta_files:
+        for fasta_file in fasta_files:
+            print(f"Processing {fasta_file}")
+            with open(fasta_file, 'r') as f:
+                for record in SeqIO.parse(f, 'fasta'):
+                    processed_reads += 1
+                    read_sequence = str(record.seq)
+                    read_id = record.id
+                    found_in_this_read = False
+                    all_regions_found = True
+                    for region in regions:
+                        if region in read_sequence:
+                            read_counts[region] += 1
+                            found_in_this_read = True
+                        else:
+                            all_regions_found = False
+                    if found_in_this_read:
+                        total_reads_with_any_region += 1
+                    if all_regions_found:
+                        total_reads_with_all_regions += 1
+                        if output_fasta_file is not None:
+                            # Save the sequence to a FASTA file with the original read ID
+                            fasta_output.write(f">{read_id}\n{read_sequence}\n")
+    if fastqgz_files:
+        for fastqgz_file in fastqgz_files:
+            print(f"Processing {fastqgz_file}")
+            with gzip.open(fastqgz_file, 'rt') as f:
+                read_id = ""  # Initialize read_id for each file
+                for i, line in enumerate(f):
+                    if i % 4 == 0:  # This is the sequence ID line in FASTQ
+                        # Remove the leading '@' and store the full ID
+                        read_id = line.strip().lstrip('@')
+                    elif i % 4 == 1:  # Read sequence line in FASTQ
+                        processed_reads += 1
+                        read_sequence = line.strip()
+                        found_in_this_read = False
+                        all_regions_found = True
+                        for region in regions:
+                            if region in read_sequence:
+                                read_counts[region] += 1
+                                found_in_this_read = True
+                            else:
+                                all_regions_found = False
+                        if found_in_this_read:
+                            total_reads_with_any_region += 1
+                        if all_regions_found:
+                            total_reads_with_all_regions += 1
+                            if output_fasta_file is not None:
+                                # Save the sequence to a FASTA file with the original read ID
+                                fasta_output.write(f">{read_id}\n{read_sequence}\n")
+
+            print("Counts per region:")
+            for dr, region in zip(drs, regions):
+                print(f"  {dr} - {region}: {read_counts[region]} reads")
+            print(f"\nTotal reads containing ANY of the regions: {total_reads_with_any_region}")
+            print(f"Total reads containing ALL regions: {total_reads_with_all_regions}")
+            print(f"Total reads processed: {processed_reads}")
+
+    return drs, regions, read_counts, total_reads_with_any_region, total_reads_with_all_regions, processed_reads
+
+
+def extract_regions(merged_reads_folder, output_dir):
+    """
+    Extract specific regions from sequences in a FASTA file and save them to separate FASTA files.
+
+    :param input_fasta: Path to the input FASTA file.
+    :param output_dir: Directory to save the output FASTA files.
+    """
+    # Define regions and their corresponding output files
+    regions = {
+        "crrna1": (26, 45),
+        "crrna2": (66, 85),
+        "crrna3": (106, 125),
+        "crrna4": (146, 165),
+        "crrna-all": (26, 165),  # Combined region for all crRNAs
+    }
+    # Ensure the output directory exists
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # Open output files for writing
+    output_files = {name: open(f"{output_dir}/{name}.fasta", "w") for name in regions}
+
+    fasta_files = glob.glob(os.path.join(merged_reads_folder, '*.fasta'))
+    # Parse the input FASTA file
+    for fasta_file in fasta_files:
+        for record in SeqIO.parse(fasta_file, "fasta"):
+            for name, (start, end) in regions.items():
+                # Extract the subsequence (1-based indexing, so subtract 1 from start)
+                subseq = record.seq[start - 1:end]
+                # Write the subsequence to the corresponding output file
+                output_files[name].write(f">{record.id}_{name}\n{subseq}\n")
+
+    # Close all output files
+    for file in output_files.values():
+        file.close()
+
+    print(f"Regions extracted and saved to {output_dir}.")
+
+
+def count_cr_rnas(crrna_folder):
+    """
+    Count how many times each sequence appears in crRNA FASTA files and save counts to individual CSV files.
+
+    :param crrna_folder: Path to the folder containing crRNA FASTA files.
+    """
+
+    # Find all FASTA files in the folder
+    fasta_files = glob.glob(os.path.join(crrna_folder, 'crrna*.fasta'))
+    if not fasta_files:
+        raise FileNotFoundError("No FASTA files found in the specified directory.")
+
+        # Process each FASTA file
+    for fasta_file in fasta_files:
+        sequence_counts = defaultdict(int)
+        print(f"Processing {fasta_file}")
+
+        # Count sequences in the FASTA file
+        for record in SeqIO.parse(fasta_file, "fasta"):
+            sequence = str(record.seq)
+            sequence_counts[sequence] += 1
+
+        # Create a CSV file for the current FASTA file
+        csv_file = os.path.splitext(fasta_file)[0] + '_counts.csv'
+        with open(os.path.join(crrna_folder, csv_file), 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Sequence", "Count"])
+            # Write the sequence counts decrescending order
+            sequence_counts = dict(sorted(sequence_counts.items(), key=lambda item: item[1], reverse=True))
+            for sequence, count in sequence_counts.items():
+                writer.writerow([sequence, count])
+
+        print(f"Counts saved to {csv_file}")
+
+
+def find_sequences_in_fasta(crrna_folder, targets_fasta):
+    """
+    Find if sequences from a CSV file are present in a FASTA file and save the results.
+
+    :param crrna_folder: Path to the CSV file containing sequences and counts.
+    :param targets_fasta: Path to the FASTA file containing target sequences.
+    :return output_csv: Path to save the output CSV file with sequence names and counts.
+    """
+    output_csv = 'matched_sequences.csv'
+    cr_rna_counts_csv = glob.glob(os.path.join(crrna_folder, 'crrna-all_counts.csv'))[0]
+
+    # Read sequences and counts from the CSV file
+    csv_sequences = {}
+    with open(cr_rna_counts_csv, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            csv_sequences[row['Sequence']] = int(row['Count'])
+
+    # Read sequences from the FASTA file
+    fasta_sequences = {}
+    for record in SeqIO.parse(targets_fasta, "fasta"):
+        fasta_sequences[str(record.seq)] = record.id
+
+    # Find matches and save results
+    with open(os.path.join(crrna_folder, output_csv), 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Sequence_Name', 'Count'])  # Write header
+        for sequence, count in csv_sequences.items():
+            if sequence in fasta_sequences:
+                writer.writerow([fasta_sequences[sequence], count])
+
+    print(f"Matched sequences saved to {os.path.join(crrna_folder, output_csv)}.")
+
+
+def run_alignment(path_sequencing_data, template_file, merged_reads_folder, alignment_tool):
+    """
+    Run Alignment
+    """
+    fasta_files = glob.glob(os.path.join(path_sequencing_data, merged_reads_folder, 'fasta', '*.filtered.fasta'))
+    if not fasta_files:
+        fasta_files = glob.glob(os.path.join(path_sequencing_data, merged_reads_folder, '*.fasta'))
     if not fasta_files:
         raise FileNotFoundError("No FASTA files found in the specified directory.")
 
     # Use the first FASTA file (or handle multiple files as needed)
     fasta_file = fasta_files[0]
 
-    # Run MMseqs commands
-    subprocess.run(['mmseqs', 'createdb', fasta_file, 'merged_fasta_file_db'], check=True)
-    subprocess.run(['mmseqs', 'createdb', template_file, 'template_db'], check=True)
-    subprocess.run(
-        ['mmseqs', 'search', 'template_db', 'merged_fasta_file_db', 'AlignResult_mmseqs', 'tmp', '--search-type', '3',
-         '--threads', '4'], check=True)
-    subprocess.run(
-        ['mmseqs', 'convertalis', 'template_db', 'merged_fasta_file_db', 'AlignResult_mmseqs', 'AlignResult_mmseqs.tsv',
-         '--format-output', 'query,target,pident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits'],
-        check=True)
+    if alignment_tool == 'mmseqs2':
+        """
+        Run alignment using MMseqs.
+        """
+
+        # --- Run MMseqs commands ---
+        # Create a database from the FASTA file and the template file
+        subprocess.run(['mmseqs', 'createdb', fasta_file, 'merged_fasta_file_db'], check=True)
+        subprocess.run(['mmseqs', 'createdb', template_file, 'template_db'], check=True)
+
+        # Search the database against the template file
+        subprocess.run(
+            ['mmseqs', 'search', 'template_db', 'merged_fasta_file_db', 'AlignResult_mmseqs', 'tmp', '--search-type', '3', '--threads', '8'], check=True)
+
+        # Convert the search results to a tab-separated format
+        subprocess.run(
+            ['mmseqs', 'convertalis', 'template_db', 'merged_fasta_file_db', 'AlignResult_mmseqs', 'AlignResult_mmseqs.tsv',
+             '--format-output', 'query,target,pident,alnlen,mismatch,gapopen,qstart,qend,tstart,tend,evalue,bits'],
+            check=True)
+
+        # Delete DB temp files
+        os.remove('merged_fasta_file_db.m8')
+
+    else:
+        script_dir = '/Users/flavia/PycharmProjects/C_KUZM1024'
+        merged_db_name = os.path.join(script_dir, 'merged_fasta_file_db')
+        align_result_file = os.path.join(script_dir, 'AlignResult_blastn.tsv')
+
+        # --- Run alignment using Blastn ---
+        # Create a database from the FASTA file and the template file
+        subprocess.run(['makeblastdb', '-in', fasta_file, '-dbtype', 'nucl', '-out', merged_db_name], check=True)
+
+        # Run blastn to search the database against the template file
+        subprocess.run(['blastn', '-query', template_file, '-db', merged_db_name, '-out', align_result_file,
+                        '-outfmt', '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore',
+                        '-num_threads', '8'], check=True)
 
 
-def filter_alignment_results():
+def filter_alignment_results(filter_pident, tool):
     """
     Filter the alignment results to keep only the best hits.
     """
-    # Set filter parameter
-    filter_pident = 100  # Default value for filter_pident
-
+    if tool == 'mmseqs':
+        alignment_file = 'AlignResult_mmseqs.tsv'
+    elif tool == 'blastn':
+        alignment_file = 'AlignResult_blastn.tsv'
+    else:
+        raise ValueError("Unsupported alignment tool. Use 'mmseqs' or 'blastn'.")
     # Load the dataframe
-    df = pd.read_csv('AlignResult_mmseqs.tsv', sep='\t', header=None,
+    df = pd.read_csv(alignment_file, sep='\t', header=None,
                      names=["qseqid", "sseqid", "pident", "length", "mismatch",
                             "gapopen", "qstart", "qend", "sstart", "send",
                             "evalue", "bitscore"])
@@ -358,61 +763,177 @@ def filter_alignment_results():
     print(f"Number of entries after filtering: {len(df_filtered)}")
 
     # Save the filtered DataFrame
-    df_filtered.to_csv(f'AlignResult_mmseqs_filter_{str(filter_pident)}.tsv', sep='\t', index=False)
+    df_filtered.to_csv(f'AlignResult_{tool}_filter_{str(filter_pident)}.tsv', sep='\t', index=False)
 
     # Calculate qseqid counts
     qseqid_counts = df_filtered[
         'qseqid'].value_counts().to_dict()  # This line was added to define and calculate qseqid_counts
 
-    # Save the counts to a file
+    # Save the counts to a csv file
     with open(f'qseqid_counts_{str(filter_pident)}.txt', 'w') as f:
         for qseqid, count in qseqid_counts.items():
             f.write(f"{qseqid}\t{count}\n")
 
+    with open(f'qseqid_counts_{str(filter_pident)}.csv', 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Sequence_Name', 'Count'])  # Write header
+        for qseqid, count in qseqid_counts.items():
+            writer.writerow(qseqid, count)
+
     # Print the counts
     # print(qseqid_counts)
-    print("Filtering complete. Results saved to AlignResult_mmseqs_filter.tsv and qseqid_counts.txt.")
+    print(f"Filtering complete. Results saved to {alignment_file} and qseqid_counts.txt.")
 
 
-def find_missing_targets(template_path, alignment_tsv_file_path, output_csv_path, output_fasta_path):
+def fix_count_reads(duplicates_file, count_qseqid_file):
     """
-    Identifies targets present in a FASTA file but missing from an alignment TSV file.
+    Fix the count of reads in the qseqid_counts file by checking the file with duplicates.
+    :param duplicates: csv file with columns one with list of qseqids,
+                      the second with the count of duplicates and the third with the sequence
+    :param count_qseqid: columns qseqid and count
+    :return: fixed_count_qseqid
+    """
+
+    """
+        Fix the count of reads in the qseqid_counts file by checking the file with duplicates.
+
+        :param duplicates_path: Path to a CSV file with columns:
+                                - a column containing lists of qseqids (e.g., 'qseqids_list')
+                                - a column with the count of duplicates (e.g., 'duplicate_count')
+                                - a column with the sequence (e.g., 'sequence')
+        :param count_qseqid_path: Path to a CSV file with columns:
+                                  - 'qseqid'
+                                  - 'count'
+        :return: A pandas DataFrame with the fixed counts for qseqids.
+        """
+
+    try:
+        # Load the duplicates file
+        df_duplicates = pd.read_csv(duplicates_file)
+
+        # Load the qseqid counts file
+        # Using header=None, sep='\t', and comment='#' as per your previous fix.
+        df_count_qseqid = pd.read_csv(count_qseqid_file, header=None, sep='\t', comment='#')
+        df_count_qseqid = df_count_qseqid.rename(columns={0: 'qseqid', 1: 'original_count'})
+
+    except FileNotFoundError as e:
+        print(f"Error: One of the input files was not found: {e}")
+        return None
+    except pd.errors.EmptyDataError as e:
+        print(f"Error: One of the input files is empty: {e}")
+        return None
+    except Exception as e:
+        print(f"An unexpected error occurred while reading files: {e}")
+        return None
+
+    # --- Preprocessing df_duplicates to map each individual ID to its original group ---
+    # Create a unique identifier for each original duplicate group (e.g., the first ID in its 'ids' list)
+    df_duplicates['group_id_original'] = df_duplicates['ids'].apply(lambda x: x.split(',')[0].strip())
+
+    # 1. Split the 'ids' column by comma into a list
+    df_duplicates['ids_list'] = df_duplicates['ids'].str.split(',')
+
+    # 2. Explode the DataFrame so each individual ID in 'ids_list' gets its own row.
+    # This will associate each 'cleaned_id' with its 'group_id_original'.
+    df_duplicates_exploded = df_duplicates.explode('ids_list').copy()  # Use .copy() to avoid SettingWithCopyWarning
+
+    # 3. Clean up the individual IDs (remove leading/trailing whitespace)
+    df_duplicates_exploded['cleaned_id'] = df_duplicates_exploded['ids_list'].str.strip()
+
+    # Select only the relevant columns for merging: cleaned_id and its original group_id
+    duplicate_group_map = df_duplicates_exploded[['cleaned_id', 'group_id_original']].copy()
+
+    # --- Merge count data with duplicate group information ---
+    # Merge df_count_qseqid with the duplicate_group_map
+    # This will add 'group_id_original' to df_count_qseqid for any qseqid that is part of a duplicate group.
+    # qseqids not in a group will have NaN in 'group_id_original'.
+    merged_df = pd.merge(df_count_qseqid,
+                         duplicate_group_map,
+                         left_on='qseqid',
+                         right_on='cleaned_id',
+                         how='left')
+
+    # Drop the redundant 'cleaned_id' column from the merge
+    merged_df = merged_df.drop(columns=['cleaned_id'])
+
+    # --- Calculate the effective divisor for each group ---
+    # For rows that belong to a group (group_id_original is not NaN):
+    # Count how many members of each group are actually present in the qseqid_counts file.
+    # This is done by counting non-NaN 'qseqid's within each 'group_id_original' group.
+    # Use transform('count') to get the count for each group and broadcast it back to the original DataFrame size.
+    merged_df['actual_group_members_present'] = merged_df.groupby('group_id_original')['qseqid'].transform('count')
+
+    # Fill NaN values for 'actual_group_members_present' with 1 for non-grouped items
+    # If group_id_original is NaN, it means it's not a duplicate group member, so its divisor is 1.
+    merged_df['actual_group_members_present'] = merged_df['actual_group_members_present'].fillna(1).astype(int)
+
+    # --- Calculate the fixed count based on the new logic ---
+    merged_df['fixed_count'] = merged_df.apply(
+        lambda row: row['original_count'] / row['actual_group_members_present'],
+        axis=1
+    )
+
+    # Convert fixed_count to integer (if desired, results might be floats after division)
+    # Be aware of potential data loss if division results in non-whole numbers.
+    # If fixed counts are expected to be integers, you might want to round before converting.
+    # For now, let's keep it as float to preserve precision from division.
+    # If you need integer, you can add `.round().astype(int)`
+    # merged_df['fixed_count'] = merged_df['fixed_count'].round().astype(int)
+
+    # Clean up the DataFrame to return only 'qseqid' and 'fixed_count'
+    fixed_count_qseqid = merged_df[['qseqid', 'fixed_count']].copy()
+
+    # Create a new txt file to save the fixed counts
+    output_file = f'fixed_{count_qseqid_file}'
+    with open(output_file, 'w') as f:
+        # Write header
+        f.write("qseqid\tfixed_count\n")
+        for index, row in fixed_count_qseqid.iterrows():
+            # Format float to a reasonable number of decimal places if needed
+            f.write(f"{row['qseqid']}\t{row['fixed_count']:.0f}\n")  # .0f for no decimal places, adjust as needed
+
+    return fixed_count_qseqid
+
+
+def find_missing_targets(template_path, filter_pident, alignment_csv_file_path):
+    """
+    Identifies targets present in a FASTA file but missing from an alignment CSV file.
 
     Args:
         template_path (str): Path to the input FASTA file containing all target sequences.
-        alignment_tsv_file_path (str): Path to the alignment TSV file.
+        alignment_csv_file_path (str): Path to the alignment TSV file.
         output_csv_path (str): Path to save the CSV file with missing target names.
         output_fasta_path (str): Path to save the FASTA file with missing target sequences.
     """
-    print(f"Starting find_missing_targets analysis for FASTA: {template_path} and TSV: {alignment_tsv_file_path}")
+    print(f"Starting find_missing_targets analysis for FASTA: {template_path} and TSV: {alignment_csv_file_path}")
 
+    output_csv_path = f'missing_targets_{filter_pident}.csv'
+    output_fasta_path = f'missing_targets_{filter_pident}.fasta'
     # --- 1. Get all target names from the FASTA file ---
     fasta_target_names = set()
     try:
         for record in SeqIO.parse(template_path, "fasta"):
             fasta_target_names.add(record.id)
-        # print(f"Found {len(fasta_target_names)} unique targets in FASTA file.")
+        print(f"Found {len(fasta_target_names)} unique targets in FASTA file.")
     except FileNotFoundError:
         print(f"Error: FASTA file not found at {template_path}")
-        return
+        return None
     except Exception as e:
         print(f"Error reading FASTA file: {e}")
-        return
+        return None
 
     # --- 2. Get unique qseqid (aligned target names) from the TSV file ---
     aligned_target_names = set()
     try:
         # print("Reading aligned target names from TSV file...")
         # Read the TSV file, specifying column names as per your description
-        df = pd.read_csv(alignment_tsv_file_path, sep='\t', header=None, low_memory=False,
-                         names=["qseqid", "sseqid", "pident", "length", "mismatch",
-                                "gapopen", "qstart", "qend", "sstart", "send",
-                                "evalue", "bitscore"])
-        # Get unique values from the 'qseqid' column
-        aligned_target_names = set(df["qseqid"].unique())
-        # print(f"Found {len(aligned_target_names)} unique aligned targets in TSV file.")
+        df = pd.read_csv(alignment_csv_file_path, sep=',', header=None, low_memory=False,
+                         names=["Sequence_Name", "Count"])
+        # Get unique values from the 'Sequence_Name' column
+        aligned_target_names = set(df["Sequence_Name"].unique())
+        print(f"Found {len(aligned_target_names)} unique aligned targets in TSV file.")
     except FileNotFoundError:
-        print(f"Error: TSV file not found at {alignment_tsv_file_path}")
+        print(f"Error: TSV file not found at {alignment_csv_file_path}")
         return
     except Exception as e:
         print(f"Error reading TSV file: {e}")
@@ -420,7 +941,7 @@ def find_missing_targets(template_path, alignment_tsv_file_path, output_csv_path
 
     # --- 3. Find targets missing from the alignment results ---
     missing_targets = fasta_target_names - aligned_target_names
-    # print(f"Found {len(missing_targets)} targets missing from the alignment results.")
+    print(f"Found {len(missing_targets)} targets missing from the alignment results.")
 
     if not missing_targets:
         print("No missing targets found. No output files will be created.")
@@ -450,28 +971,38 @@ def find_missing_targets(template_path, alignment_tsv_file_path, output_csv_path
 
 
 if __name__ == '__main__':
-    # Joe's data processing and analysis
-    verify_library(targets_joe)
-    verify_qc(data_joe_path, 'raw_fastqc_results', 'raw_multiqc_report')
-    ## remove_adapters(data_joe_path) # Data does not contain adapters
-    merge_r1_r2(data_joe_path)
-    verify_qc(os.path.join(data_joe_path, 'merged_reads'), 'merged_fastqc_results', 'merged_multiqc_report')
-    convert_fastq_to_fasta(data_joe_path, 'merged_reads')
-    length_distribution(os.path.join(data_joe_path, 'merged_reads', 'fasta'))
-    run_alignment(data_joe_path, targets_joe, 'merged_reads')
-    filter_alignment_results()
-    find_missing_targets(targets_brittany, '', 'missing_targets.csv', 'missing_targets.fasta')
-    report.generate_report(data_brittany_path, 'merged_reads', '')
+    filter_pident = 100  # Default value for filter_pident
 
+    # --- new pipeline ---
+    # Joe's data processing and analysis
+    # --- merge_tool = 'pear'  # or 'pandaseq' if you prefer
+    # -- tool = 'mmseqs'  # or 'blastn' if you prefer
+    # verify_library(targets_joe, data_joe_path)
+    verify_qc(os.path.join(data_joe_path, 'raw_data'), 'raw_fastqc_results', 'raw_multiqc_report')
+    merge_r1_r2(data_joe_path, output_folder='merged_reads_pandas', merge_tool='pandaseq')
+    verify_qc(os.path.join(data_joe_path, 'merged_reads_pandas'), 'merged_fastqc_results', 'merged_multiqc_report')
+    count_drs(os.path.join(data_joe_path, 'raw_data'), output_fasta_file='None')
+    count_drs_order(os.path.join(data_joe_path, 'merged_reads_pandas'))
+    extract_regions(os.path.join(data_joe_path, 'merged_reads_pandas'), os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'))
+    count_cr_rnas(os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'))
+    find_sequences_in_fasta(os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'), targets_joe_unique)
+    find_missing_targets(targets_joe_unique, filter_pident, "matched_sequences.csv")
+    report.generate_report(data_joe_path, filter_pident, 'merged_reads_pandas')
+
+    # --- new pipeline ---
     # Brittany's data processing and analysis
-    verify_qc(os.path.join(data_brittany_path, 'raw_data'), 'raw_fastqc_results', 'raw_multiqc_report')
-    ## remove_adapters(data_brittany_path) # Data does not contain adapters
-    merge_r1_r2(data_brittany_path)
-    verify_qc(os.path.join(data_brittany_path, 'merged_reads'), 'merged_fastqc_results', 'merged_multiqc_report')
-    convert_fastq_to_fasta(data_brittany_path, 'merged_reads')
-    length_distribution(os.path.join(data_brittany_path, 'merged_reads', 'fasta'))
-    count_reads(os.path.join(data_brittany_path, 'merged_reads', 'fasta'))
-    run_alignment(data_brittany_path, targets_brittany, 'merged_reads')
-    filter_alignment_results()
-    find_missing_targets(targets_brittany, 'AlignResult_mmseqs_filter_97.tsv', 'missing_targets.csv', 'missing_targets.fasta')
-    report.generate_report(data_brittany_path, 'merged_reads', 'qseqid_counts_97.txt')
+    # --- merge_tool = 'pear'  # or 'pandaseq' if you prefer
+    # -- tool = 'mmseqs'  # or 'blastn' if you prefer
+    # verify_library(targets_joe, data_joe_path)
+    verify_qc(os.path.join(data_joe_path, 'raw_data'), 'raw_fastqc_results', 'raw_multiqc_report')
+    merge_r1_r2(data_joe_path, output_folder='merged_reads_pandas', merge_tool='pandaseq')
+    verify_qc(os.path.join(data_joe_path, 'merged_reads_pandas'), 'merged_fastqc_results', 'merged_multiqc_report')
+    count_drs(os.path.join(data_joe_path, 'raw_data'), output_fasta_file='None')
+    count_drs_order(os.path.join(data_joe_path, 'merged_reads_pandas'))
+    extract_regions(os.path.join(data_joe_path, 'merged_reads_pandas'), os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'))
+    count_cr_rnas(os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'))
+    find_sequences_in_fasta(os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'), targets_joe_unique)
+    find_missing_targets(targets_brittany, filter_pident, "matched_sequences.csv")
+    report.generate_report(data_brittany_path, filter_pident, 'merged_reads_pandas')
+
+
