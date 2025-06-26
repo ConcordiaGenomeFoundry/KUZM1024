@@ -1,10 +1,10 @@
-# KUZM1024
+# KUZM1124
 
 ![version](https://img.shields.io/badge/current_v-1.0.0-blue)
 ![version](https://img.shields.io/badge/python-3.8+-blue)
 
 ## Description
-KUZM1024 is a bioinformatics pipeline designed to process raw Illumina sequencing reads and verify them against a library database. 
+KUZM1124 is a bioinformatics pipeline designed to process raw Illumina sequencing reads and verify them against a library database. 
 It utilizes various tools and scripts to ensure the integrity and accuracy of the sequencing data.
 
 ## Features

@@ -6,15 +6,15 @@ from Bio import SeqIO
 from collections import defaultdict
 
 
-data_joe_path = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_Chr4p_TSG'
-# targets_joe = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe.fasta'
-targets_joe_unique = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe_unique.fasta'
+data_joe_path = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_Chr4p_TSG'
+# targets_joe = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe.fasta'
+targets_joe_unique = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe_unique.fasta'
 
-data_brittany_path = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_MitoCarrier'
-targets_brittany = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_MitoCarrier/targets_brittany.fasta'
-# targets_brittany = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_MitoCarrier/targets_brittany_modified.fasta'
+data_brittany_path = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_MitoCarrier'
+targets_brittany = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_MitoCarrier/targets_brittany.fasta'
+# targets_brittany = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_MitoCarrier/targets_brittany_modified.fasta'
 
-targets_DRs = '/Users/flavia/Documents/Concordia/C_KUZM1024/2nd_round/fastq/Sample_MitoCarrier/targets_DRs.fasta'
+targets_DRs = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_MitoCarrier/targets_DRs.fasta'
 
 
 def verify_library(template_file_path, path_sequencing_data):
@@ -722,7 +722,7 @@ def run_alignment(path_sequencing_data, template_file, merged_reads_folder, alig
         os.remove('merged_fasta_file_db.m8')
 
     else:
-        script_dir = '/Users/flavia/PycharmProjects/C_KUZM1024'
+        script_dir = '/Users/flavia/PycharmProjects/C_KUZM1124'
         merged_db_name = os.path.join(script_dir, 'merged_fasta_file_db')
         align_result_file = os.path.join(script_dir, 'AlignResult_blastn.tsv')
 

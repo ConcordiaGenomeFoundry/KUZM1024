@@ -571,9 +571,9 @@ def generate_report(path_sequencing_data, filter_pident, merged_reads_folder):
     # Footer
     story.append(Spacer(1, 0.4 * inch))
     story.append(Paragraph(
-        "This report was created for C_KUZM1024 using a Illumina sequencing analysis pipeline. For any questions or "
+        "This report was created for C_KUZM1124 using a Illumina sequencing analysis pipeline. For any questions or "
         "further analysis, please contact Flavia Araujo or Jing Cheng. Source code available "
-        "at: https://github.com/ConcordiaGenomeFoundry/KUZM1024",
+        "at: https://github.com/ConcordiaGenomeFoundry/KUZM1124",
         styles['FooterStyle']))
 
     # ---
