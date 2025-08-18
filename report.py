@@ -297,9 +297,9 @@ def generate_report(path_sequencing_data, filter_pident, merged_reads_folder):
     counts_txt_file = f"matched_sequences.csv"
 
     try:
-        df_array_count = pd.read_csv(counts_txt_file, sep=",", header=None, names=["qseqid", "count"], skip_blank_lines=True)
-        df_array_count["count"] = pd.to_numeric(df_array_count["count"], errors='coerce').fillna(0)
-        array_counts = df_array_count["count"].values
+        df_array_count = pd.read_csv(os.path.join(path_sequencing_data, merged_reads_folder, 'fasta', counts_txt_file), sep=",", header=0, skip_blank_lines=True)
+        df_array_count["Count"] = pd.to_numeric(df_array_count["Count"], errors='coerce').fillna(0)
+        array_counts = df_array_count["Count"].values
     except Exception as e:
         print(f"Error reading {counts_txt_file}: {e}")
         return
@@ -490,7 +490,7 @@ def generate_report(path_sequencing_data, filter_pident, merged_reads_folder):
     # If outliers were detected, save them to a CSV file
     if outliers:
         # Create a csv file with only the outliers using the df_array_count file
-        outliers_df = df_array_count[df_array_count['count'].isin(outliers)]
+        outliers_df = df_array_count[df_array_count['Count'].isin(outliers)]
         outliers_csv_path = f"outliers_{filter_pident}.csv"
         outliers_df.to_csv(outliers_csv_path, index=False)
 
@@ -543,10 +543,10 @@ def generate_report(path_sequencing_data, filter_pident, merged_reads_folder):
 
     # Prepare data for the top 20 arrays table
     if not df_array_count.empty:
-        top_20_arrays = df_array_count.sort_values(by="count", ascending=False).head(20)
+        top_20_arrays = df_array_count.sort_values(by="Count", ascending=False).head(20)
         top_20_data = [["Rank", "Array ID", "Read Count"]]
         for i, (index, row) in enumerate(top_20_arrays.iterrows()):
-            top_20_data.append([i + 1, row["qseqid"], f"{row['count']:,}"])
+            top_20_data.append([i + 1, row["Sequence_Name"], f"{row['Count']:,}"])
 
         top_20_table = Table(top_20_data, colWidths=[0.8 * inch, 3.5 * inch, 1.7 * inch])
         top_20_table.setStyle(TableStyle([

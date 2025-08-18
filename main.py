@@ -7,12 +7,17 @@ from collections import defaultdict
 
 
 data_joe_path = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_Chr4p_TSG'
-# targets_joe = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe.fasta'
+
+# library original, replaced by targets_joe_unique after removing duplicates
+# targets_joe = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe.fasta' #have duplicates
+
+# library used to identify the unique sequences
 targets_joe_unique = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe_unique.fasta'
+# targets_joe_control = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_Chr4p_TSG/targets_joe_only_control.fasta'
+
 
 data_brittany_path = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_MitoCarrier'
 targets_brittany = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_MitoCarrier/targets_brittany.fasta'
-# targets_brittany = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_MitoCarrier/targets_brittany_modified.fasta'
 
 targets_DRs = '/Users/flavia/Documents/Concordia/C_KUZM1124/2nd_round/fastq/Sample_MitoCarrier/targets_DRs.fasta'
 
@@ -598,8 +603,23 @@ def extract_regions(merged_reads_folder, output_dir):
 
     # Open output files for writing
     output_files = {name: open(f"{output_dir}/{name}.fasta", "w") for name in regions}
+    print(f"Output files will be saved in {output_dir}.")
+
+    # Convert fasta.gz to fasta if needed
+    # fasta_files = glob.glob(os.path.join(merged_reads_folder, '*.fasta.gz'))
+    # if fasta_files:
+    #     print(f"Found {len(fasta_files)} gzipped FASTA files. Converting to FASTA...")
+    #     for gz_file in fasta_files:
+    #         with gzip.open(gz_file, 'rt') as f_in:
+    #             fasta_content = f_in.read()
+    #             fasta_file = gz_file.replace('.gz', '')
+    #             with open(fasta_file, 'w') as f_out:
+    #                 f_out.write(fasta_content)
+    #         print(f"Converted {gz_file} to {fasta_file}.")
+    #     # Update fasta_files to point to the uncompressed files
 
     fasta_files = glob.glob(os.path.join(merged_reads_folder, '*.fasta'))
+    print(f"Found {len(fasta_files)} FASTA files in {merged_reads_folder}.")
     # Parse the input FASTA file
     for fasta_file in fasta_files:
         for record in SeqIO.parse(fasta_file, "fasta"):
@@ -927,10 +947,10 @@ def find_missing_targets(template_path, filter_pident, alignment_csv_file_path):
     try:
         # print("Reading aligned target names from TSV file...")
         # Read the TSV file, specifying column names as per your description
-        df = pd.read_csv(alignment_csv_file_path, sep=',', header=None, low_memory=False,
-                         names=["Sequence_Name", "Count"])
+        df = pd.read_csv(alignment_csv_file_path, sep=',', header=0, low_memory=False)
         # Get unique values from the 'Sequence_Name' column
         aligned_target_names = set(df["Sequence_Name"].unique())
+
         print(f"Found {len(aligned_target_names)} unique aligned targets in TSV file.")
     except FileNotFoundError:
         print(f"Error: TSV file not found at {alignment_csv_file_path}")
@@ -976,8 +996,7 @@ if __name__ == '__main__':
     # --- new pipeline ---
     # Joe's data processing and analysis
     # --- merge_tool = 'pear'  # or 'pandaseq' if you prefer
-    # -- tool = 'mmseqs'  # or 'blastn' if you prefer
-    # verify_library(targets_joe, data_joe_path)
+    verify_library(targets_joe_unique, data_joe_path)
     verify_qc(os.path.join(data_joe_path, 'raw_data'), 'raw_fastqc_results', 'raw_multiqc_report')
     merge_r1_r2(data_joe_path, output_folder='merged_reads_pandas', merge_tool='pandaseq')
     verify_qc(os.path.join(data_joe_path, 'merged_reads_pandas'), 'merged_fastqc_results', 'merged_multiqc_report')
@@ -986,22 +1005,21 @@ if __name__ == '__main__':
     extract_regions(os.path.join(data_joe_path, 'merged_reads_pandas'), os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'))
     count_cr_rnas(os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'))
     find_sequences_in_fasta(os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'), targets_joe_unique)
-    find_missing_targets(targets_joe_unique, filter_pident, "matched_sequences.csv")
+    find_missing_targets(targets_joe_unique, filter_pident, os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta', "matched_sequences.csv"))
     report.generate_report(data_joe_path, filter_pident, 'merged_reads_pandas')
 
     # --- new pipeline ---
     # Brittany's data processing and analysis
     # --- merge_tool = 'pear'  # or 'pandaseq' if you prefer
-    # -- tool = 'mmseqs'  # or 'blastn' if you prefer
-    # verify_library(targets_joe, data_joe_path)
-    verify_qc(os.path.join(data_joe_path, 'raw_data'), 'raw_fastqc_results', 'raw_multiqc_report')
-    merge_r1_r2(data_joe_path, output_folder='merged_reads_pandas', merge_tool='pandaseq')
-    verify_qc(os.path.join(data_joe_path, 'merged_reads_pandas'), 'merged_fastqc_results', 'merged_multiqc_report')
-    count_drs(os.path.join(data_joe_path, 'raw_data'), output_fasta_file='None')
-    count_drs_order(os.path.join(data_joe_path, 'merged_reads_pandas'))
-    extract_regions(os.path.join(data_joe_path, 'merged_reads_pandas'), os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'))
-    count_cr_rnas(os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'))
-    find_sequences_in_fasta(os.path.join(data_joe_path, 'merged_reads_pandas', 'fasta'), targets_joe_unique)
+    verify_library(targets_brittany, data_brittany_path)
+    verify_qc(os.path.join(data_brittany_path, 'raw_data'), 'raw_fastqc_results', 'raw_multiqc_report')
+    merge_r1_r2(data_brittany_path, output_folder='merged_reads_pandas', merge_tool='pandaseq')
+    verify_qc(os.path.join(data_brittany_path, 'merged_reads_pandas'), 'merged_fastqc_results', 'merged_multiqc_report')
+    count_drs(os.path.join(data_brittany_path, 'raw_data'), output_fasta_file='None')
+    count_drs_order(os.path.join(data_brittany_path, 'merged_reads_pandas'))
+    extract_regions(os.path.join(data_brittany_path, 'merged_reads_pandas'), os.path.join(data_brittany_path, 'merged_reads_pandas', 'fasta'))
+    count_cr_rnas(os.path.join(data_brittany_path, 'merged_reads_pandas', 'fasta'))
+    find_sequences_in_fasta(os.path.join(data_brittany_path, 'merged_reads_pandas', 'fasta'), targets_brittany)
     find_missing_targets(targets_brittany, filter_pident, "matched_sequences.csv")
     report.generate_report(data_brittany_path, filter_pident, 'merged_reads_pandas')
 
